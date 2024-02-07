@@ -15,7 +15,7 @@ class GlaS2015(Dataset):
         self.path = path
         self.exp_name_cp = exp_name_cp
         self.exp_name_gan = exp_name_gan
-        self.imsize = imsize
+        self.imsize = int(imsize)
         self.df = self.get_sample_info(original)
         
     
@@ -78,6 +78,7 @@ class GlaS2015(Dataset):
         mask = np.where(mask>=0.5, 1.0, 0)
 
         # mask expand
+        mask = mask[None,...] # (1, H, W)
         # mask = np.stack([np.ones_like(mask)-mask, mask], axis=-1) # (h,w,2)
 
         # reshape to make channel-first-image
@@ -93,7 +94,7 @@ class GlaS2015(Dataset):
         grade = torch.tensor(grade).type(torch.LongTensor)
 
         # return
-        return image, mask[None,...], grade
+        return image, mask, grade
 
 
 
