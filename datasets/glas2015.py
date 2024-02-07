@@ -9,13 +9,14 @@ import cv2
 
 
 class GlaS2015(Dataset):
-    def __init__(self, path=None, original:bool=True, split='train', exp_name_cp=None, exp_name_gan=None, imsize=512):
+    def __init__(self, path=None, original:bool=True, split='train', exp_name_cp=None, exp_name_gan=None, imsize=512, for_segmentation=False):
         assert split in ['train', 'test']
         self.split = split
         self.path = path
         self.exp_name_cp = exp_name_cp
         self.exp_name_gan = exp_name_gan
         self.imsize = int(imsize)
+        self.for_segmentation = for_segmentation
         self.df = self.get_sample_info(original)
         
     
@@ -78,8 +79,9 @@ class GlaS2015(Dataset):
         mask = np.where(mask>=0.5, 1.0, 0)
 
         # mask expand
-        mask = mask[None,...] # (1, H, W)
-        # mask = np.stack([np.ones_like(mask)-mask, mask], axis=-1) # (h,w,2)
+        mask = mask[None,...] # (1, h, 2)
+        if self.for_segmentation:
+            mask = np.stack([np.ones_like(mask)-mask, mask], axis=-1) # (2, h , w)
 
         # reshape to make channel-first-image
         image = np.einsum('...c->c...', image)
