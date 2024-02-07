@@ -68,7 +68,7 @@ def get_parser():
                         help='Epochs to train gan.')
     parser.add_argument('--batch_size_gan', '--bsg', type=int, default=4,
                         help='Epochs to train gan.')
-    parser.add_argument('--lr_gen', type=float, default=0.0001,
+    parser.add_argument('--lr_gen', type=float, default=2e-4,
                         help='Learning rate of generator.')
     parser.add_argument('--lr_dis', default=0.0004, type=float,
                         help='Learning rate of discriminator.')
