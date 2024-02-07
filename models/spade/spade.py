@@ -48,8 +48,8 @@ class SPADE(Module):
         seg_gamma = self.conv_gamma(seg)# ; print(f'gamma : {torch.min(seg_gamma).item()}, {torch.max(seg_gamma).item()}\n')
         seg_beta = self.conv_beta(seg)# ; print(f'beta : {torch.min(seg_beta).item()}, {torch.max(seg_beta).item()}\n')
         
-        # matmul = torch.matmul(seg_gamma, x) ; print(f'matmul : {torch.min(matmul).item()}, {torch.max(matmul).item()}\n')
-        matmul = x*seg_gamma# ; print(f'matmul : {torch.min(matmul).item()}, {torch.max(matmul).item()}\n')
+        matmul = torch.matmul(seg_gamma, x)# ; print(f'matmul : {torch.min(matmul).item()}, {torch.max(matmul).item()}\n')
+        # matmul = x*seg_gamma# ; print(f'matmul : {torch.min(matmul).item()}, {torch.max(matmul).item()}\n')
         x = matmul + seg_beta
 
         # if math.isnan(torch.mean(matmul).item()):

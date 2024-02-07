@@ -1,43 +1,95 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 
 class GANLoss(nn.Module):
-    def __init__(self, use_lsgan=True, target_real_label=1.0, target_fake_label=0.0,
-                 tensor=torch.FloatTensor):
-        super().__init__()
+    def __init__(self, gan_mode, target_real_label=1.0, target_fake_label=0.0,
+                 tensor=torch.FloatTensor, opt=None):
+        super(GANLoss, self).__init__()
         self.real_label = target_real_label
         self.fake_label = target_fake_label
-        self.real_label_var = None
-        self.fake_label_var = None
+        self.real_label_tensor = None
+        self.fake_label_tensor = None
+        self.zero_tensor = None
         self.Tensor = tensor
-        if use_lsgan:
-            self.loss = nn.L1Loss()
+        self.gan_mode = gan_mode
+        self.opt = opt
+        if gan_mode == 'ls':
+            pass
+        elif gan_mode == 'original':
+            pass
+        elif gan_mode == 'w':
+            pass
+        elif gan_mode == 'hinge':
+            pass
         else:
-            self.loss = nn.BCELoss()
+            raise ValueError('Unexpected gan_mode {}'.format(gan_mode))
 
     def get_target_tensor(self, input, target_is_real):
-        target_tensor = None
         if target_is_real:
-            create_label = ((self.real_label_var is None) or
-                            (self.real_label_var.numel() != input.numel()))
-            if create_label:
-                real_tensor = self.Tensor(input.size()).fill_(self.real_label)
-                self.real_label_var = torch.tensor(real_tensor, requires_grad=False)
-            target_tensor = self.real_label_var
+            if self.real_label_tensor is None:
+                self.real_label_tensor = self.Tensor(1).fill_(self.real_label)
+                self.real_label_tensor.requires_grad_(False)
+            return self.real_label_tensor.expand_as(input)
         else:
-            create_label = ((self.fake_label_var is None) or
-                            (self.fake_label_var.numel() != input.numel()))
-            if create_label:
-                fake_tensor = self.Tensor(input.size()).fill_(self.fake_label)
-                self.fake_label_var = torch.tensor(fake_tensor, requires_grad=False)
-            target_tensor = self.fake_label_var
-        return target_tensor
+            if self.fake_label_tensor is None:
+                self.fake_label_tensor = self.Tensor(1).fill_(self.fake_label)
+                self.fake_label_tensor.requires_grad_(False)
+            return self.fake_label_tensor.expand_as(input)
 
-    def __call__(self, input, target_is_real):        
-        target_tensor = self.get_target_tensor(input, target_is_real)
-        return self.loss(input, target_tensor.to(torch.device('cuda')))
+    def get_zero_tensor(self, input):
+        if self.zero_tensor is None:
+            self.zero_tensor = self.Tensor(1).fill_(0)
+            self.zero_tensor.requires_grad_(False)
+        return self.zero_tensor.expand_as(input)
+
+    def loss(self, input, target_is_real, for_discriminator=True):
+        if self.gan_mode == 'original':  # cross entropy loss
+            target_tensor = self.get_target_tensor(input, target_is_real).to(self.device)
+            loss = F.binary_cross_entropy_with_logits(input, target_tensor)
+            return loss
+        elif self.gan_mode == 'ls':
+            target_tensor = self.get_target_tensor(input, target_is_real).to(self.device)
+            return F.mse_loss(input, target_tensor)
+        elif self.gan_mode == 'hinge':
+            if for_discriminator:
+                target_tensor = self.get_zero_tensor(input).to(self.device)
+                if target_is_real:
+                    minval = torch.min(input - 1, target_tensor)
+                    loss = -torch.mean(minval)
+                else:
+                    minval = torch.min(-input - 1, target_tensor)
+                    loss = -torch.mean(minval)
+            else:
+                assert target_is_real, "The generator's hinge loss must be aiming for real"
+                loss = -torch.mean(input)
+            return loss
+        else:
+            # wgan
+            if target_is_real:
+                return -input.mean()
+            else:
+                return input.mean()
+
+    def __call__(self, input, target_is_real, for_discriminator=True):
+        # computing loss is a bit complicated because |input| may not be
+        # a tensor, but list of tensors in case of multiscale discriminator
+        self.device = input.device
+        if isinstance(input, list):
+            loss = 0
+            for pred_i in input:
+                if isinstance(pred_i, list):
+                    pred_i = pred_i[-1]
+                loss_tensor = self.loss(pred_i, target_is_real, for_discriminator)
+                bs = 1 if len(loss_tensor.size()) == 0 else loss_tensor.size(0)
+                new_loss = torch.mean(loss_tensor.view(bs, -1), dim=1)
+                loss += new_loss
+            return loss / len(input)
+        else:
+            return self.loss(input, target_is_real, for_discriminator)
+        
     
 
 class GeneratorLoss(nn.Module):
@@ -62,6 +114,7 @@ class GeneratorLoss(nn.Module):
                 return loss_fake + loss_fm
         else:
             return loss_fake
+
 
 
 class DiscrimonatorLoss(nn.Module):

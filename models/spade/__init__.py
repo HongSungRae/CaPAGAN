@@ -11,7 +11,7 @@ from torch.cuda.amp import autocast
 from torch.cuda.amp import GradScaler
 import matplotlib.pyplot as plt
 import numpy as np
-import copy
+
 
 # local
 from .generator import SPADEGenerator
@@ -19,6 +19,7 @@ from .discriminator import SPADEDiscriminator
 from .ganloss import GANLoss, GeneratorLoss, DiscrimonatorLoss
 from utils import misc
 from datasets.glas2015 import GlaS2015
+from .resnet import GenertorResNet
 
 
 
@@ -28,9 +29,11 @@ def weights_init(m):
     classname = m.__class__.__name__
     if classname.find('Conv') != -1:
         nn.init.normal_(m.weight.data, 0.0, 0.02)
-    # elif classname.find('BatchNorm') != -1:
-    #     nn.init.normal_(m.weight.data, 1.0, 0.02)
-    #     nn.init.constant_(m.bias.data, 0)
+        if hasattr(m, 'bias') and m.bias is not None:
+            torch.nn.init.constant_(m.bias.data, 0.0)
+    elif classname.find('BatchNorm2d') != -1:
+        nn.init.normal_(m.weight.data, 1.0, 0.02)
+        nn.init.constant_(m.bias.data, 0)
 
 
 
@@ -48,7 +51,8 @@ class SPADETrainer:
 
         # init G and D
         ## Generator
-        self.generator = SPADEGenerator(args)
+        # self.generator = SPADEGenerator(args)
+        self.generator = GenertorResNet((3,256,256), 9)
         self.generator.apply(weights_init)
         
         ## Discriminator
@@ -64,9 +68,9 @@ class SPADETrainer:
             self.discriminator = self.discriminator.cuda()
 
         ## Loss
-        self.criterion = GANLoss()
-        self.criterion_gen = GeneratorLoss(fm_loss=True, return_all=True)
-        self.criterion_dis = DiscrimonatorLoss(return_all=True)
+        self.criterion = GANLoss(gan_mode='original')
+        # self.criterion_gen = GeneratorLoss(fm_loss=True, return_all=True)
+        # self.criterion_dis = DiscrimonatorLoss(return_all=True)
 
         # dataloader
         self.train_dataloader, self.test_dataloader = self.get_dataloader()
@@ -86,16 +90,14 @@ class SPADETrainer:
             pass
 
         train_dataloader = DataLoader(train_dataset, batch_size=self.args.batch_size_gan, drop_last=True, shuffle=True)
-        test_dataloader = DataLoader(test_dataset, batch_size=4, drop_last=True)
+        test_dataloader = DataLoader(test_dataset, batch_size=4, drop_last=True, shuffle=True)
         return train_dataloader, test_dataloader
 
     def train(self):
         # init
         ## optimizer
-        self.generator.train()
-        self.discriminator.train()
-        optim_gen = torch.optim.Adam(self.generator.parameters(), lr=self.args.lr_gen, betas=(0,0.999))
-        optim_dis = torch.optim.Adam(self.discriminator.parameters(), lr=self.args.lr_dis, betas=(0,0.999))
+        optim_gen = torch.optim.Adam(self.generator.parameters(), lr=self.args.lr_gen, betas=(0.5,0.999))
+        optim_dis = torch.optim.Adam(self.discriminator.parameters(), lr=self.args.lr_dis, betas=(0.5,0.999))
 
         ## z
         # mean_std = misc.open_yaml(fr'{self.path}/data/bank/encoder/{self.args.exp_name_encoder}/mean_std.yaml')
@@ -118,24 +120,26 @@ class SPADETrainer:
 
         # train
         for epoch in tqdm(range(self.args.epochs_gan), desc=' Alert : Training SPADE...'):
+            self.generator.train()
+            self.discriminator.train()
             for i, (img, mask, grade) in enumerate(self.train_dataloader):
                 img, mask = img.cuda(), mask.cuda()
                 with autocast():
-                    noise = torch.rand(img.shape[0], 256).cuda()
+                    noise = torch.randn(img.shape[0], 256).cuda()
                     fake_img = self.generator(noise, mask)
 
                     pred_fake = self.discriminator(fake_img, mask)
-                    pred_fake_2 = self.discriminator(fake_img, mask)
-                    layer_outputs_fake = self.discriminator.layer_outputs
-                    self.discriminator.layer_outputs = {}
-                    # loss_D_fake = self.criterion(pred_fake, False)
+                    # layer_outputs_fake = self.discriminator.layer_outputs
+                    # self.discriminator.layer_outputs = {}
 
                     pred_real = self.discriminator(img, mask)
-                    layer_outputs_real = self.discriminator.layer_outputs
-                    # loss_D_real = self.criterion(pred_real, True)
+                    # layer_outputs_real = self.discriminator.layer_outputs
 
-                    loss_G, loss_fake_G, loss_fm = self.criterion_gen(pred_fake, layer_outputs_real, layer_outputs_fake)
-                    loss_D, loss_real_D, loss_fake_D  = self.criterion_dis(pred_real, pred_fake_2)
+                    # loss_G, loss_fake_G, loss_fm = self.criterion_gen(pred_fake, layer_outputs_real, layer_outputs_fake)
+                    # loss_D, loss_real_D, loss_fake_D  = self.criterion_dis(pred_real, pred_fake)
+
+                    loss_G = self.criterion(pred_fake, target_is_real=True, for_discriminator=False)
+                    loss_D = self.criterion(pred_real, target_is_real=True)*0.5 + self.criterion(pred_fake, target_is_real=False)
 
                 # loss_G = self.criterion(pred_fake, True)
                 # loss_D = loss_D_fake + loss_D_real*0.5
@@ -149,9 +153,6 @@ class SPADETrainer:
                 # scaler_dis.scale(loss_D).backward()
                 # scaler_dis.step(optim_dis)
                 # scaler_dis.update()
-                # print(torch.mean(fake_img).item(), '\n')
-                # print(torch.mean(pred_real).item(), torch.mean(pred_fake).item(),'\n')
-                # print(loss_G, loss_D)
                 
                 optim_dis.zero_grad()
                 loss_D.backward(retain_graph=True)
@@ -169,17 +170,18 @@ class SPADETrainer:
 
                 loss_G_list.append(loss_G.detach().cpu().item())
                 loss_D_list.append(loss_D.detach().cpu().item())
-                loss_fm_list.append(10*loss_fm.detach().cpu().item())
-                loss_fake_D_list.append(loss_fake_D.detach().cpu().item())
-                loss_real_D_list.append(loss_real_D.detach().cpu().item())
-                loss_fake_G_list.append(loss_fake_G.detach().cpu().item())
+                # loss_fm_list.append(10*loss_fm.detach().cpu().item())
+                # loss_fake_D_list.append(loss_fake_D.detach().cpu().item())
+                # loss_real_D_list.append(loss_real_D.detach().cpu().item())
+                # loss_fake_G_list.append(loss_fake_G.detach().cpu().item())
             
             if (epoch+1)%20 == 0:
                 ## show sythesized images
-                del img, mask, grade, pred_fake, pred_real, loss_D, loss_G, loss_fake_D, loss_fake_G, loss_real_D, loss_fm
+                del img, mask, grade, pred_fake, pred_real, loss_D, loss_G#, loss_fake_D, loss_fake_G, loss_real_D, loss_fm
                 optim_dis.zero_grad()
                 optim_gen.zero_grad()
                 torch.cuda.empty_cache()
+                self.generator.eval()
                 with torch.no_grad():
                     plt.cla()
                     plt.figure(figsize=(20,20))
@@ -187,10 +189,10 @@ class SPADETrainer:
                         img, mask = img.cuda(), mask.cuda()
                         fake_imgs = self.generator(noise, mask)
                         fake_imgs = fake_imgs.detach().cpu()
-                        fake_imgs = fake_imgs*0.5 + 0.5
+                        fake_imgs = (fake_imgs*0.5 + 0.5)*255.0
                         for j in range(fake_imgs.shape[0]):
                             plt.subplot(2,2,j+1)
-                            plt.imshow(np.einsum('c...->...c', fake_imgs[j].numpy()))
+                            plt.imshow(np.einsum('c...->...c', fake_imgs[j].numpy().astype(np.uint8)))
                         break
                     plt.savefig(fr'{self.path}/data/bank/gan/{self.args.exp_name_gan}/{epoch+1}.png', format='png')
                 del img, mask, fake_imgs
@@ -202,23 +204,23 @@ class SPADETrainer:
                                 self.args.distributed)
                 
                 ## plot loss
-                plt.cla()
-                plt.figure(figsize=(20,10))
-                plt.plot(loss_real_D_list, label='Loss on REAL')
-                plt.plot(loss_fake_D_list, label='Loss on FAKE')
-                plt.xlabel('Iter')
-                plt.ylabel('Loss')
-                plt.legend()
-                plt.savefig(fr'{self.path}/data/bank/gan/{self.args.exp_name_gan}/loss_D_{epoch+1}.png', format='png')
+                # plt.cla()
+                # plt.figure(figsize=(20,10))
+                # plt.plot(loss_real_D_list, label='Loss on REAL')
+                # plt.plot(loss_fake_D_list, label='Loss on FAKE')
+                # plt.xlabel('Iter')
+                # plt.ylabel('Loss')
+                # plt.legend()
+                # plt.savefig(fr'{self.path}/data/bank/gan/{self.args.exp_name_gan}/loss_D_{epoch+1}.png', format='png')
 
-                plt.cla()
-                plt.figure(figsize=(20,10))
-                plt.plot(loss_fm_list, label='FM Loss')
-                plt.plot(loss_fake_G_list, label='Loss on FAKE')
-                plt.xlabel('Iter')
-                plt.ylabel('Loss')
-                plt.legend()
-                plt.savefig(fr'{self.path}/data/bank/gan/{self.args.exp_name_gan}/loss_G_{epoch+1}.png', format='png')
+                # plt.cla()
+                # plt.figure(figsize=(20,10))
+                # plt.plot(loss_fm_list, label='FM Loss')
+                # plt.plot(loss_fake_G_list, label='Loss on FAKE')
+                # plt.xlabel('Iter')
+                # plt.ylabel('Loss')
+                # plt.legend()
+                # plt.savefig(fr'{self.path}/data/bank/gan/{self.args.exp_name_gan}/loss_G_{epoch+1}.png', format='png')
         
         # when training ends
         ## D save
@@ -238,8 +240,8 @@ class SPADETrainer:
 
         ## save log
         misc.save_yaml(fr'{self.path}/data/bank/gan/{self.args.exp_name_gan}/loss.yaml', {'generator':loss_G_list, 'discriminator':loss_D_list})
-        misc.save_yaml(fr'{self.path}/data/bank/gan/{self.args.exp_name_gan}/loss_G.yaml', {'loss_fake_G':loss_fake_G_list, 'loss_fm':loss_fm_list})
-        misc.save_yaml(fr'{self.path}/data/bank/gan/{self.args.exp_name_gan}/loss_D.yaml', {'loss_real_D':loss_real_D_list, 'loss_fake_D':loss_fake_D_list})
+        # misc.save_yaml(fr'{self.path}/data/bank/gan/{self.args.exp_name_gan}/loss_G.yaml', {'loss_fake_G':loss_fake_G_list, 'loss_fm':loss_fm_list})
+        # misc.save_yaml(fr'{self.path}/data/bank/gan/{self.args.exp_name_gan}/loss_D.yaml', {'loss_real_D':loss_real_D_list, 'loss_fake_D':loss_fake_D_list})
 
 
     def inference(self):
@@ -247,6 +249,9 @@ class SPADETrainer:
         pass
 
 
-    def __call__(self):
-        self.train()
-        self.inference()
+    def __call__(self, mode='train'):
+        if mode == 'train':
+            self.train()
+            self.inference()
+        else:
+            self.inference()

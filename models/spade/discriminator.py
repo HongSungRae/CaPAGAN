@@ -17,8 +17,9 @@ def custom_model2(in_chan, out_chan, stride=2):
     )
 
 class SPADEDiscriminator(nn.Module):
-    def __init__(self, args):
+    def __init__(self, fm_loss=False):
         super().__init__()
+        self.fm_loss = fm_loss
         self.layer1 = custom_model1(4, 64)
         self.layer2 = custom_model2(64, 128)
         self.layer3 = custom_model2(128, 256)
@@ -30,10 +31,10 @@ class SPADEDiscriminator(nn.Module):
 
     def forward(self, img, seg):
         x = torch.cat((seg, img.detach()), dim=1)
-        x = self.layer1(x) ; self.layer_outputs['layer1'] = x.clone()
-        x = self.layer2(x) ; self.layer_outputs['layer2'] = x.clone()
-        x = self.layer3(x) ; self.layer_outputs['layer3'] = x.clone()
-        x = self.layer4(x) ; self.layer_outputs['layer4'] = x.clone()
+        x = self.layer1(x)# ; self.layer_outputs['layer1'] = x.clone()
+        x = self.layer2(x)# ; self.layer_outputs['layer2'] = x.clone()
+        x = self.layer3(x)# ; self.layer_outputs['layer3'] = x.clone()
+        x = self.layer4(x)# ; self.layer_outputs['layer4'] = x.clone()
         x = leaky_relu(self.inst_norm(x))
         x = nn.functional.sigmoid(self.conv(x))
         
