@@ -6,21 +6,27 @@ from torch.nn.functional import tanh, interpolate
 from .spade_resblk import SPADEResBlk
 
 class SPADEGenerator(Module):
-    def __init__(self, args):
+    def __init__(self, gan_input_size=256, gan_hidden_size=16384, spade_resblk_kernel=3, spade_filter=128, spade_kernel=3, imsize=512):
         super().__init__()
-        self.linear = Linear(args.gen_input_size, args.gen_hidden_size)
-        self.spade_resblk1 = SPADEResBlk(args, 1024, 1024, True)
-        self.spade_resblk2 = SPADEResBlk(args, 1024, 1024, True)
-        self.spade_resblk3 = SPADEResBlk(args, 1024, 1024, True)
-        self.spade_resblk4 = SPADEResBlk(args, 1024, 512, True)
-        self.spade_resblk5 = SPADEResBlk(args, 512, 256, True)
-        self.spade_resblk6 = SPADEResBlk(args, 256, 128, True)
-        self.spade_resblk7 = SPADEResBlk(args, 128, 64, True)
+        assert int(imsize) in [256,512] 
+        self.imsize = imsize
+        self.linear = Linear(gan_input_size, gan_hidden_size)
+        self.spade_resblk1 = SPADEResBlk(spade_resblk_kernel, spade_filter, spade_kernel, 1024, 512, True) # 1024 1024
+        self.spade_resblk2 = SPADEResBlk(spade_resblk_kernel, spade_filter, spade_kernel, 512, 512, True) # 1024 1024
+        self.spade_resblk3 = SPADEResBlk(spade_resblk_kernel, spade_filter, spade_kernel, 512, 512, True) # 1024 1024
+        self.spade_resblk4 = SPADEResBlk(spade_resblk_kernel, spade_filter, spade_kernel, 512, 256, True) # 1024 512
+        self.spade_resblk5 = SPADEResBlk(spade_resblk_kernel, spade_filter, spade_kernel, 256, 256, True) # 512 256
+        self.spade_resblk6 = SPADEResBlk(spade_resblk_kernel, spade_filter, spade_kernel, 256, 128, True) # 256 128
+        self.spade_resblk7 = SPADEResBlk(spade_resblk_kernel, spade_filter, spade_kernel, 128, 64, True) # 128 64
         self.conv = spectral_norm(Conv2d(64, 3, kernel_size=(3,3), padding=1))
 
     def forward(self, x, seg):
         b, _, _, _ = seg.size()
-        h, w = 4, 4
+        if self.imsize == 512:
+            h, w = 4, 4
+        else:
+            h, w = 2, 2
+
         x = self.linear(x)
         x = x.view(b, -1, 4, 4) # (b,1024,4,4)
 

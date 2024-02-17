@@ -5,22 +5,22 @@ from torch.nn.utils import spectral_norm
 from .spade import SPADE
 
 class SPADEResBlk(Module):
-    def __init__(self, args, k_in, k_out, skip=False, spectral=True):
+    def __init__(self, spade_resblk_kernel, spade_filter, spade_kernel, k_in, k_out, skip=False, spectral=True):
         super().__init__()
-        kernel_size = args.spade_resblk_kernel
+        kernel_size = spade_resblk_kernel
         self.skip = skip
 
         
         if self.skip:
-            self.spade1 = SPADE(args, k_in)
+            self.spade1 = SPADE(spade_filter, spade_kernel, k_in)
             self.conv1 = Conv2d(k_in, k_in, kernel_size=(kernel_size, kernel_size), padding=1)
-            self.spade_skip = SPADE(args, k_in)
+            self.spade_skip = SPADE(spade_filter, spade_kernel, k_in)
             self.conv_skip = Conv2d(k_in, k_out, kernel_size=(kernel_size, kernel_size), padding=1, bias=False)
         else:
-            self.spade1 = SPADE(args, k_in)
+            self.spade1 = SPADE(spade_filter, spade_kernel, k_in)
             self.conv1 = Conv2d(k_in, k_in, kernel_size=(kernel_size, kernel_size), padding=1)
 
-        self.spade2 = SPADE(args, k_in)
+        self.spade2 = SPADE(spade_filter, spade_kernel, k_in)
         self.conv2 = Conv2d(k_in, k_out, kernel_size=(kernel_size, kernel_size), padding=1)
 
         if spectral:

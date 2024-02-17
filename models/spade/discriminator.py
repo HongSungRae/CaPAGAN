@@ -36,9 +36,42 @@ class SPADEDiscriminator(nn.Module):
         x = self.layer3(x)# ; self.layer_outputs['layer3'] = x.clone()
         x = self.layer4(x)# ; self.layer_outputs['layer4'] = x.clone()
         x = leaky_relu(self.inst_norm(x))
-        x = nn.functional.sigmoid(self.conv(x))
+        # x = nn.functional.sigmoid(self.conv(x))
+        x = self.conv(x)
         
         return x
+    
+
+
+class PatchDiscriminator(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding):
+        super().__init__()
+        layer_list = []
+        for i,_ in enumerate(in_channels):
+            layer_list.append(self.getConv(in_channels[i],
+                                           out_channels[i],
+                                           kernel_size[i],
+                                           stride[i],
+                                           padding[i]))
+        else:
+            layer_list.append(nn.Conv2d(out_channels[-1],1,4,1,1))
+            layer_list.append(nn.Sigmoid())
+            self.layers = nn.ModuleList(layer_list)
+    
+    def getConv(self,in_channels,out_channels,kernel_size,stride,padding):
+        layers = nn.Sequential(spectral_norm(nn.Conv2d(in_channels,out_channels,kernel_size,stride,padding)),
+                               nn.InstanceNorm2d(out_channels),
+                               nn.LeakyReLU(.2))
+        return layers
+    
+    def forward(self,x,seg):
+        x = torch.cat([x,seg], dim=1)
+        for layer in self.layers:
+            x = layer(x)
+        return x
+    
+
+
     
 if __name__ == '__main__':
     d = SPADEDiscriminator(None)

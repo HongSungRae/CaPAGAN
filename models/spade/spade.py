@@ -9,10 +9,10 @@ import warnings
 warnings.filterwarnings("ignore")
 
 class SPADE(Module):
-    def __init__(self, args, k):
+    def __init__(self, spade_filter, spade_kernel, k):
         super().__init__()
-        num_filters = args.spade_filter
-        kernel_size = args.spade_kernel
+        num_filters = spade_filter
+        kernel_size = spade_kernel
         self.eps = 1e-9
         self.conv = spectral_norm(Conv2d(1, num_filters, kernel_size=(kernel_size, kernel_size), padding=1))
         self.conv_gamma = spectral_norm(Conv2d(num_filters, k, kernel_size=(kernel_size, kernel_size), padding=1))

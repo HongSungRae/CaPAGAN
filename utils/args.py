@@ -51,14 +51,16 @@ def get_parser():
                         help='GAN image size')
     parser.add_argument('--n_samples_gan', '--nsg', default=100, type=int,
                         help='The number samples user wants to synthesize by GAN.')
+    parser.add_argument('--dsize', default='small', type=str, choices=['small', 'big', 'medium'], 
+                        help='Discriminator size')
 
     
     ## SPADE Generator
     parser.add_argument('--spade_filter', default=128, type=int,
                         help='Number of CNN filter(depth) in SPADE')
-    parser.add_argument('--gen_input_size', default=256, type=int,
+    parser.add_argument('--gan_input_size', default=256, type=int,
                         help='z vector dimension. If 256, shape of z gonna be (1,256).')
-    parser.add_argument('--gen_hidden_size', default=16384, type=int,
+    parser.add_argument('--gan_hidden_size', default=16384, type=int,
                         help='16384=128x128. z vector is embedded to this size.'),
     parser.add_argument('--spade_kernel', default=3, type=int)
     parser.add_argument('--spade_resblk_kernel', default=3, type=int)
@@ -68,10 +70,16 @@ def get_parser():
                         help='Epochs to train gan.')
     parser.add_argument('--batch_size_gan', '--bsg', type=int, default=4,
                         help='Epochs to train gan.')
-    parser.add_argument('--lr_gen', type=float, default=2e-4,
+    parser.add_argument('--lr_gen', type=float, default=1e-4,
                         help='Learning rate of generator.')
     parser.add_argument('--lr_dis', default=0.0004, type=float,
                         help='Learning rate of discriminator.')
+    parser.add_argument('--fm_loss', '--fm', action='store_true',
+                        help='Feature matching loss')
+    parser.add_argument('--lam_gen', default=1.0, type=float,
+                        help='lambda weight to Generator Loss')
+    parser.add_argument('--lam_dis', default=1.0, type=float,
+                        help='lambda weight to Discriminator Loss')
     parser.add_argument('--distributed', '--d', action='store_true',
                         help='Multi GPU distributed training. Default is False. To make True --d')
     

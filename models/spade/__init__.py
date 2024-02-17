@@ -15,7 +15,7 @@ import numpy as np
 
 # local
 from .generator import SPADEGenerator
-from .discriminator import SPADEDiscriminator
+from .discriminator import SPADEDiscriminator, PatchDiscriminator
 from .ganloss import GANLoss, GeneratorLoss, DiscrimonatorLoss
 from utils import misc
 from datasets.glas2015 import GlaS2015
@@ -51,12 +51,42 @@ class SPADETrainer:
 
         # init G and D
         ## Generator
-        # self.generator = SPADEGenerator(args)
-        self.generator = GenertorResNet((3,256,256), 9)
+        self.generator = SPADEGenerator(gan_input_size=args.gan_input_size,
+                                        gan_hidden_size=args.gan_hidden_size,
+                                        spade_resblk_kernel=args.spade_resblk_kernel,
+                                        spade_filter=args.spade_filter,
+                                        spade_kernel=args.spade_kernel,
+                                        imsize=int(args.imsize_gan))
+        # self.generator = GenertorResNet((3,256,256), 9)
         self.generator.apply(weights_init)
         
         ## Discriminator
-        self.discriminator = SPADEDiscriminator(args)
+        # self.discriminator = SPADEDiscriminator(args)
+        if int(args.imsize_gan) == 256:
+            if args.dsize == 'small':
+                self.discriminator = PatchDiscriminator(in_channels=[3+1,16,32,16],
+                                                        out_channels=[16,32,16,3],
+                                                        kernel_size=[4,4,4,4],
+                                                        stride=[2,2,2,2],
+                                                        padding=[2,2,2,2])
+            elif args.dsize == 'medium':
+                self.discriminator = PatchDiscriminator(in_channels=[3+1,64,128,256,128],
+                                                        out_channels=[64,128,256,128,3],
+                                                        kernel_size=[3,3,3,3,3],
+                                                        stride=[2,2,2,2,2],
+                                                        padding=[4,8,8,7,4])
+            else:
+                self.discriminator = PatchDiscriminator(in_channels=[3+1,64,128,256,128,64],
+                                                        out_channels=[64,128,256,128,64,3],
+                                                        kernel_size=[3,3,3,3,3,3],
+                                                        stride=[2,2,2,2,2,2],
+                                                        padding=[4,8,8,7,4,4])
+        elif int(args.imsize_gan) == 512:
+            self.discriminator = PatchDiscriminator(in_channels=[4,16,64,32,16],
+                                                    out_channels=[16,64,32,16,3],
+                                                    kernel_size=[4,4,4,4,4],
+                                                    stride=[2,2,2,2,2],
+                                                    padding=[2,2,2,2,2])
         self.discriminator.apply(weights_init)
 
         ## cuda
@@ -68,12 +98,14 @@ class SPADETrainer:
             self.discriminator = self.discriminator.cuda()
 
         ## Loss
-        self.criterion = GANLoss(gan_mode='original')
-        # self.criterion_gen = GeneratorLoss(fm_loss=True, return_all=True)
-        # self.criterion_dis = DiscrimonatorLoss(return_all=True)
+        # self.criterion = GANLoss(gan_mode='original')
+        self.criterion_gen = GeneratorLoss(fm_loss=args.fm_loss, return_all=True)
+        self.criterion_dis = DiscrimonatorLoss(lam=args.lam_dis, return_all=True)
 
         # dataloader
         self.train_dataloader, self.test_dataloader = self.get_dataloader()
+        print(f'\n Train loader : {args.batch_size_gan} batch X {len(self.train_dataloader)} iters')
+        print(f'\n Test loader : 4 batch X {len(self.test_dataloader)} iters')
 
     def get_dataloader(self):
         if self.args.dataset_gan == 'GlaS2015':
@@ -96,8 +128,8 @@ class SPADETrainer:
     def train(self):
         # init
         ## optimizer
-        optim_gen = torch.optim.Adam(self.generator.parameters(), lr=self.args.lr_gen, betas=(0.5,0.999))
-        optim_dis = torch.optim.Adam(self.discriminator.parameters(), lr=self.args.lr_dis, betas=(0.5,0.999))
+        optim_gen = torch.optim.Adam(self.generator.parameters(), lr=self.args.lr_gen, betas=(0.0, 0.999))
+        optim_dis = torch.optim.Adam(self.discriminator.parameters(), lr=self.args.lr_dis, betas=(0.0, 0.999))
 
         ## z
         # mean_std = misc.open_yaml(fr'{self.path}/data/bank/encoder/{self.args.exp_name_encoder}/mean_std.yaml')
@@ -136,10 +168,11 @@ class SPADETrainer:
                     # layer_outputs_real = self.discriminator.layer_outputs
 
                     # loss_G, loss_fake_G, loss_fm = self.criterion_gen(pred_fake, layer_outputs_real, layer_outputs_fake)
-                    # loss_D, loss_real_D, loss_fake_D  = self.criterion_dis(pred_real, pred_fake)
+                    loss_G = self.criterion_gen(pred_fake) * self.args.lam_gen
+                    loss_D, loss_real_D, loss_fake_D  = self.criterion_dis(pred_real, pred_fake)
 
-                    loss_G = self.criterion(pred_fake, target_is_real=True, for_discriminator=False)
-                    loss_D = self.criterion(pred_real, target_is_real=True)*0.5 + self.criterion(pred_fake, target_is_real=False)
+                    # loss_G = self.criterion(pred_fake, target_is_real=True, for_discriminator=False)
+                    # loss_D = self.criterion(pred_real, target_is_real=True)*0.5 + self.criterion(pred_fake, target_is_real=False)
 
                 # loss_G = self.criterion(pred_fake, True)
                 # loss_D = loss_D_fake + loss_D_real*0.5
@@ -171,13 +204,13 @@ class SPADETrainer:
                 loss_G_list.append(loss_G.detach().cpu().item())
                 loss_D_list.append(loss_D.detach().cpu().item())
                 # loss_fm_list.append(10*loss_fm.detach().cpu().item())
-                # loss_fake_D_list.append(loss_fake_D.detach().cpu().item())
-                # loss_real_D_list.append(loss_real_D.detach().cpu().item())
+                loss_fake_D_list.append(loss_fake_D.detach().cpu().item())
+                loss_real_D_list.append(loss_real_D.detach().cpu().item())
                 # loss_fake_G_list.append(loss_fake_G.detach().cpu().item())
             
             if (epoch+1)%20 == 0:
                 ## show sythesized images
-                del img, mask, grade, pred_fake, pred_real, loss_D, loss_G#, loss_fake_D, loss_fake_G, loss_real_D, loss_fm
+                del img, mask, noise, grade, pred_fake, pred_real, loss_D, loss_G#, loss_fake_D, loss_fake_G, loss_real_D, loss_fm
                 optim_dis.zero_grad()
                 optim_gen.zero_grad()
                 torch.cuda.empty_cache()
@@ -185,15 +218,21 @@ class SPADETrainer:
                 with torch.no_grad():
                     plt.cla()
                     plt.figure(figsize=(20,20))
+                    count = 0
                     for _, (img, mask, grade) in enumerate(self.test_dataloader):
+                        noise = torch.randn(img.shape[0], 256).cuda()
                         img, mask = img.cuda(), mask.cuda()
                         fake_imgs = self.generator(noise, mask)
                         fake_imgs = fake_imgs.detach().cpu()
                         fake_imgs = (fake_imgs*0.5 + 0.5)*255.0
                         for j in range(fake_imgs.shape[0]):
+                            count += 1
                             plt.subplot(2,2,j+1)
                             plt.imshow(np.einsum('c...->...c', fake_imgs[j].numpy().astype(np.uint8)))
-                        break
+                            if count == 4:
+                                break
+                        if count == 4:
+                            break
                     plt.savefig(fr'{self.path}/data/bank/gan/{self.args.exp_name_gan}/{epoch+1}.png', format='png')
                 del img, mask, fake_imgs
                 torch.cuda.empty_cache()
@@ -203,50 +242,54 @@ class SPADETrainer:
                                 self.generator,
                                 self.args.distributed)
                 
-                ## plot loss
-                # plt.cla()
-                # plt.figure(figsize=(20,10))
-                # plt.plot(loss_real_D_list, label='Loss on REAL')
-                # plt.plot(loss_fake_D_list, label='Loss on FAKE')
-                # plt.xlabel('Iter')
-                # plt.ylabel('Loss')
-                # plt.legend()
-                # plt.savefig(fr'{self.path}/data/bank/gan/{self.args.exp_name_gan}/loss_D_{epoch+1}.png', format='png')
+            ## plot loss D
+            plt.cla()
+            plt.figure(figsize=(20,10))
+            plt.plot(loss_real_D_list, label='Loss on REAL')
+            plt.plot(loss_fake_D_list, label='Loss on FAKE')
+            plt.xlabel('Iter')
+            plt.ylabel('Loss')
+            plt.legend()
+            plt.savefig(fr'{self.path}/data/bank/gan/{self.args.exp_name_gan}/loss_D.png', format='png')
 
-                # plt.cla()
-                # plt.figure(figsize=(20,10))
-                # plt.plot(loss_fm_list, label='FM Loss')
-                # plt.plot(loss_fake_G_list, label='Loss on FAKE')
-                # plt.xlabel('Iter')
-                # plt.ylabel('Loss')
-                # plt.legend()
-                # plt.savefig(fr'{self.path}/data/bank/gan/{self.args.exp_name_gan}/loss_G_{epoch+1}.png', format='png')
+            ## plot loss D&G
+            plt.cla()
+            plt.figure(figsize=(20,10))
+            plt.plot(loss_D_list, label='Discriminator Loss')
+            plt.plot(loss_G_list, label='Generator Loss')
+            plt.xlabel('Iter')
+            plt.ylabel('Loss')
+            plt.legend()
+            plt.savefig(fr'{self.path}/data/bank/gan/{self.args.exp_name_gan}/loss.png', format='png')
+
+            ## plot loss G
+            if self.args.fm_loss:
+                plt.cla()
+                plt.figure(figsize=(20,10))
+                plt.plot(loss_fm_list, label='FM Loss')
+                plt.plot(loss_fake_G_list, label='Loss on FAKE')
+                plt.xlabel('Iter')
+                plt.ylabel('Loss')
+                plt.legend()
+                plt.savefig(fr'{self.path}/data/bank/gan/{self.args.exp_name_gan}/loss_G_{epoch+1}.png', format='png')
         
         # when training ends
         ## D save
         misc.save_model(fr'{self.path}/data/bank/gan/{self.args.exp_name_gan}/discriminator_{epoch+1}.pt',
                         self.discriminator,
                         self.args.distributed)
-        
-        ## plot loss
-        plt.cla()
-        plt.figure(figsize=(20,10))
-        plt.plot(loss_D_list, label='Discriminator Loss')
-        plt.plot(loss_G_list, label='Generator Loss')
-        plt.xlabel('Iter')
-        plt.ylabel('Loss')
-        plt.legend()
-        plt.savefig(fr'{self.path}/data/bank/gan/{self.args.exp_name_gan}/loss.png', format='png')
 
         ## save log
         misc.save_yaml(fr'{self.path}/data/bank/gan/{self.args.exp_name_gan}/loss.yaml', {'generator':loss_G_list, 'discriminator':loss_D_list})
-        # misc.save_yaml(fr'{self.path}/data/bank/gan/{self.args.exp_name_gan}/loss_G.yaml', {'loss_fake_G':loss_fake_G_list, 'loss_fm':loss_fm_list})
-        # misc.save_yaml(fr'{self.path}/data/bank/gan/{self.args.exp_name_gan}/loss_D.yaml', {'loss_real_D':loss_real_D_list, 'loss_fake_D':loss_fake_D_list})
+        misc.save_yaml(fr'{self.path}/data/bank/gan/{self.args.exp_name_gan}/loss_D.yaml', {'loss_real_D':loss_real_D_list, 'loss_fake_D':loss_fake_D_list})
+        if self.args.fm_loss:
+            misc.save_yaml(fr'{self.path}/data/bank/gan/{self.args.exp_name_gan}/loss_G.yaml', {'loss_fake_G':loss_fake_G_list, 'loss_fm':loss_fm_list})
 
 
     def inference(self):
         misc.make_dir(fr'{self.path}/data/bank/gan/{self.args.exp_name_gan}/samples')
-        pass
+        with torch.no_grad():
+            pass
 
 
     def __call__(self, mode='train'):

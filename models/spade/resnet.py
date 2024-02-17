@@ -66,5 +66,5 @@ class GenertorResNet(nn.Module):
     self.model = nn.Sequential(*model)
 
   def forward(self, noise, x):
-    x = torch.cat([x,x,x], dim=1)
+    # x = torch.cat([x,x,x], dim=1)
     return self.model(x)

@@ -118,14 +118,15 @@ class GeneratorLoss(nn.Module):
 
 
 class DiscrimonatorLoss(nn.Module):
-    def __init__(self, return_all=False):
+    def __init__(self, lam=1, return_all=False):
         super().__init__()
         self.return_all = return_all
+        self.lam = lam
 
     def forward(self,pred_real, pred_fake):
         loss_real = torch.mean((pred_real-1)**2)
         loss_fake = torch.mean((pred_fake)**2)
-        loss = loss_real + loss_fake
+        loss = self.lam*loss_real + loss_fake
         if self.return_all:
             return loss, loss_real, loss_fake
         else:
