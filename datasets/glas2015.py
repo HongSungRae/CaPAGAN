@@ -37,6 +37,9 @@ class GlaS2015(Dataset):
                 grade_list.append(grade)
         if self.exp_name_cp is not None:
             annotation = pd.read_csv(fr'{self.path}/data/bank/cp/{self.exp_name_cp}/annotation.csv')
+            split_idx = int(0.8*len(annotation))
+            annotation = annotation[0:split_idx] if self.split=='train' else annotation[split_idx:]
+            annotation.reset_index()
             for idx, row in annotation.iterrows():
                 name = row['name']
                 grade = row['grade']
@@ -45,6 +48,9 @@ class GlaS2015(Dataset):
                 grade_list.append(grade)
         if self.exp_name_gan is not None:
             annotation = pd.read_csv(fr'{self.path}/data/bank/gan/{self.exp_name_gan}/samples/annotation.csv')
+            split_idx = int(0.8*len(annotation))
+            annotation = annotation[0:split_idx] if self.split=='train' else annotation[split_idx:]
+            annotation.reset_index()
             for idx, row in annotation.iterrows():
                 name = row['name']
                 grade = row['grade']
@@ -102,9 +108,11 @@ class GlaS2015(Dataset):
 
 if __name__ == '__main__':
     path = 'E:\sungrae\CaPAGAN'
-    dataset = GlaS2015(path, True, 'train', '1', None, 512)
+    dataset = GlaS2015(path, True, 'test', 2, None, 512)
     dataloader = DataLoader(dataset, 8, shuffle=True)
     image, mask, grade = next(iter(dataloader))
+
+    print(f'dataloader : {len(dataloader)}')
     print(f'image : {image.shape}, {type(image)}, [{torch.min(image).item()}, {torch.max(image).item()}]') # (b,3,imsize,imsize)
     print(f'mask : {mask.shape}, {type(mask)}, [{torch.min(mask).item()}, {torch.max(mask).item()}]') # (b,1,imsize,imsize)
     print(f'grade : {grade.shape}, {type(grade)}') # (b,1)
